@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+	<title>Inicio</title>
+	<link rel="stylesheet" type="text/css" href="box.css" />
+	<link rel="stylesheet" type="text/css" href="bkg.css" />
+	<link rel="icon" type="image/vnd.microsoft.icon" href="favicon.ico">
+</head>
+
+<body onload="body_onload()" onunload="body_onunload()">
+<div id="content">
+	<div class="login-card">
+		<img src="captiveportal-logo.svg"/><br>
+ 		<h1>Home</h1>
+		<form action=".\" method="POST" >
+			<label for="xPos">XPOS: </label><input type="text" size="5" id="xPos" name="xPos" >
+			<label for="yPos">YPOS: </label><input type="text" size="5" id="yPos" name="yPos">
+			<button >CLIC</button>
+		</form>	
+	</div>
+</div>
+<script language="javascript" type="text/javascript" src="jquery.js"></script>
+<script language="javascript" type="text/javascript" src="home.js"></script>
+</body>
+</html>

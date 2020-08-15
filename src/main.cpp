@@ -3,16 +3,21 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <BuscaCoorrdenadas.h>
+#include <WifiServ.h>
+
+WifiServ wifiServ;
 
 #ifdef ARDUINO_ARCH_ESP32
 //include ESP32 specific libs
-   const byte dirPin = GPIO_NUM_16;
-   const byte stepPin = GPIO_NUM_4;
-   const byte motorPin1 = GPIO_NUM_23;      // IN1 on the ULN2003 driver
-   const byte motorPin2 = GPIO_NUM_19;      // IN2 on the ULN2003 driver
-   const byte motorPin3 = GPIO_NUM_18;     // IN3 on the ULN2003 driver
-   const byte motorPin4 = GPIO_NUM_17;     // IN4 on the ULN2003 driver
-   const byte motor1EnabledPin = GPIO_NUM_5;     // IN4 on the ULN2003 driver
+   const byte motor1Pin1 = GPIO_NUM_2;  
+   const byte motor1Pin2 = GPIO_NUM_4;  
+   const byte motor1Pin3 = GPIO_NUM_16; 
+   const byte motor1Pin4 = GPIO_NUM_17; 
+
+   const byte motor2Pin1 = GPIO_NUM_23;    
+   const byte motor2Pin2 = GPIO_NUM_19;    
+   const byte motor2Pin3 = GPIO_NUM_18;    
+   const byte motor2Pin4 = GPIO_NUM_5;    
 
    const byte analog1Pin = GPIO_NUM_34;     // Analog
    const byte analog2Pin = GPIO_NUM_35;     // Analog
@@ -25,10 +30,10 @@
 
    const byte dirPin = 8;
    const byte stepPin = 9;
-   const byte motorPin1 = 3;      // IN1 on the ULN2003 driver
-   const byte motorPin2 = 4;      // IN2 on the ULN2003 driver
-   const byte motorPin3 = 5;     // IN3 on the ULN2003 driver
-   const byte motorPin4 = 6;     // IN4 on the ULN2003 driver
+   const byte motor2Pin1 = 3;      // IN1 on the ULN2003 driver
+   const byte motor2Pin2 = 4;      // IN2 on the ULN2003 driver
+   const byte motor2Pin3 = 5;     // IN3 on the ULN2003 driver
+   const byte motor2Pin4 = 6;     // IN4 on the ULN2003 driver
    const byte motor1EnabledPin = 7;     // IN4 on the ULN2003 driver
 
    const byte analog1Pin = A2;     // Analog
@@ -40,11 +45,11 @@
 #endif
 
 
-AccelStepper stepper = AccelStepper(1, stepPin, dirPin);
-Carrito carrito1 = Carrito(&stepper, motor1EnabledPin, 6000U, true, false);
+AccelStepper stepper = AccelStepper(8, motor1Pin3, motor1Pin1 , motor1Pin2, motor1Pin4);
+Carrito carrito1 = Carrito(&stepper, 4000U, false, end1Pin);
 
-AccelStepper stepper2 = AccelStepper(8, motorPin1, motorPin3, motorPin2, motorPin4);
-Carrito carrito2 = Carrito(&stepper2, 0, 35000U, true, false);
+AccelStepper stepper2 = AccelStepper(8, motor2Pin4, motor2Pin2, motor2Pin1, motor2Pin3);
+Carrito carrito2 = Carrito(&stepper2, 35000U, true, end2Pin);
 
 BuscaCoorrdenadas buscaCoorrdenadas = BuscaCoorrdenadas(&carrito1, &carrito2);
 
@@ -56,6 +61,8 @@ uint8_t duck[8]  = {0x0,0xc,0x1d,0xf,0xf,0x6,0x0};
 uint8_t check[8] = {0x0,0x1,0x3,0x16,0x1c,0x8,0x0};
 uint8_t cross[8] = {0x0,0x1b,0xe,0x4,0xe,0x1b,0x0};
 uint8_t retarrow[8] = {	0x1,0x1,0x5,0x9,0x1f,0x8,0x4};
+
+char wsMsg[1000];
 
 enum Mode { manual, autoPos, calibrationMode };
 Mode mode = manual;
@@ -108,28 +115,46 @@ void btnSwitch(){
    }
 }
 
+class SPIFFSWriterHandler : public AsyncWebHandler {
+public:
+  SPIFFSWriterHandler() {}
+  virtual ~SPIFFSWriterHandler() {}
+
+  bool canHandle(AsyncWebServerRequest *request){
+    if(request->method() != HTTP_POST) return false; // solo captura los POST
+    return true;
+  }
+
+  void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+     mode = autoPos;
+     request->send(200, "application/json", "{}");
+  }
+};
+
 void setup() {
    Serial.begin(230400);
    // Marcar los pines como salida
    Serial.println("Setup PINS...");
 
-   pinMode(LED_BUILTIN, OUTPUT);
-
    pinMode(analog1Pin, INPUT);
    pinMode(analog2Pin, INPUT);
    pinMode(analogSwitchPin, INPUT_PULLUP);
 
-   pinMode(motorPin1, OUTPUT);
-   pinMode(motorPin2, OUTPUT);
-   pinMode(motorPin3, OUTPUT);
-   pinMode(motorPin4, OUTPUT);
+   pinMode(motor1Pin1, OUTPUT);
+   pinMode(motor1Pin2, OUTPUT);
+   pinMode(motor1Pin3, OUTPUT);
+   pinMode(motor1Pin4, OUTPUT);
 
-   pinMode(motor1EnabledPin, OUTPUT);
-   pinMode(dirPin, OUTPUT);
-   pinMode(stepPin, OUTPUT);
+   pinMode(motor2Pin1, OUTPUT);
+   pinMode(motor2Pin2, OUTPUT);
+   pinMode(motor2Pin3, OUTPUT);
+   pinMode(motor2Pin4, OUTPUT);
 
    pinMode(end1Pin, INPUT_PULLUP);
    pinMode(end2Pin, INPUT_PULLUP);
+
+   stepper.setMaxSpeed(300);
+   stepper2.setMaxSpeed(1000);
 
    Serial.println("LCD init...");
 
@@ -147,10 +172,35 @@ void setup() {
    lcd.print("Calibrando...");
    mode = calibrationMode;
 
+   wifiServ.setup();
+   wifiServ.server.addHandler(new SPIFFSWriterHandler()).setFilter(ON_AP_FILTER);//only when requested from AP
+   wifiServ.ws.onEvent([](AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len) {
+      //data packet
+      if(type != WS_EVT_DATA) return;
+
+      AwsFrameInfo * info = (AwsFrameInfo*)arg;
+      if(info->final && info->index == 0 && info->len == len){
+         //the whole message is in a single frame and we got all of it's data
+         //os_printf("ws[%s][%u] %s-message[%llu]: ", server->url(), client->id(), (info->opcode == WS_TEXT)?"text":"binary", info->len);
+         if(info->opcode == WS_TEXT){
+            data[len] = 0;
+            Serial.println((char*)data);
+         } else {
+            for(size_t i=0; i < info->len; i++){
+               Serial.print(data[i]);
+            }
+            Serial.println("");
+         }
+         if(info->opcode == WS_TEXT)
+         client->text("I got your text message");
+         else
+         client->binary("I got your binary message");
+      } else {
+         Serial.println("Otro caso");
+      }
+   });
    Serial.println("End setup.");
 }
- 
-
 
 float logSpeed(int x){
    const int CENTER = 2000;
@@ -167,12 +217,12 @@ void autoPosMove(){
    const long INTERVALO = 100;
    if(buscaCoorrdenadas.andar()){
       auto pos2 = carrito2.getPos();
-      if(pos2 > 30000) forward = false; else if(pos2 <= 0) forward = true;
+      if(pos2 >= 35000) forward = false; else if(pos2 <= 5000) forward = true;
       if(forward) pos2 += INTERVALO; else pos2 -= INTERVALO;
       
       auto cos2 = (double)pos2;
-      cos2 = cos(cos2/5000);
-      auto pos1 = (cos2 * 3000) + 3000;
+      cos2 = cos(cos2/6000);
+      auto pos1 = (cos2 * 2000) + 2000;
       buscaCoorrdenadas.irHasta(pos1, pos2);
    }
 }
@@ -184,7 +234,7 @@ void analogManualMove(){
    auto logA2 = logSpeed(a2);
    auto logA3 = logSpeed(a3);
 
-   print(logA2);
+   //print(logA2);
 
    carrito1.setSpeed(logA2/6);
    carrito2.setSpeed(logA3);
@@ -214,8 +264,8 @@ void analogManualMove(){
 
 void calibrate(){
 
-   auto calibrado1 = carrito1.calibrar(!digitalRead(end1Pin));
-   auto calibrado2 = carrito2.calibrar(!digitalRead(end2Pin));
+   auto calibrado1 = carrito1.calibrar();
+   auto calibrado2 = carrito2.calibrar();
 
    if(!calibrado1){
       return;
@@ -226,13 +276,13 @@ void calibrate(){
    }
 
    Serial.println("Calibrado.");
-
    mode = Mode::manual;
    lcd.clear();
-   lcd.print("Listo.");
+   lcd.print("Modo Manual.");
 }
 
 void loop() {
+   wifiServ.loop();
    auto d2 = digitalRead(analogSwitchPin);
 
    if(!d2){
@@ -250,6 +300,7 @@ void loop() {
    {
       case manual:
          analogManualMove();
+         
          break;
       
       case autoPos:
