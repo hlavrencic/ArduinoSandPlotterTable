@@ -6,6 +6,7 @@
     #include <AsyncTCP.h>
     #include "ESPAsyncWebServer.h"
     #include <SPIFFS.h>
+    #include <ArduinoJson.h>
 
     class RedirectInvalidHostHandler : public AsyncWebHandler {
     public:
@@ -131,7 +132,8 @@
         }
     };
 
-    typedef std::function<void(uint8_t *data)> WifiServSocketMsgHandler;
+    typedef std::function<void(StaticJsonDocument<200> doc)> TextReceivedHandler;
+    typedef std::function<void()> SocketStatusHandler;
 
     class WifiServ
     {
@@ -139,10 +141,15 @@
         WifiServ();
         void setup();
         void loop();
+        void sendJson(StaticJsonDocument<200> doc);
         AsyncWebServer server = AsyncWebServer(80);
         AsyncWebSocket ws = AsyncWebSocket("/ws");
-        void sendSocket(char* msg);
+        TextReceivedHandler textReceivedHandler;
+        SocketStatusHandler connectedHandler;
+        SocketStatusHandler disconnectedHandler;
     private:
+        void serilize(char* data);
+        void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len);
         DNSServer _dNSServer;
     };
 
@@ -150,20 +157,53 @@
     {
     };
     
-    void WifiServ::sendSocket(char* msg){
-        ws.textAll(msg);
+    void WifiServ::sendJson(StaticJsonDocument<200> doc){
+        char* txt;
+        serializeJson(doc, txt);
+        ws.textAll(txt);
     };
 
+    void WifiServ::serilize(char* data){
+        if(!textReceivedHandler) return;
+
+        StaticJsonDocument<200> doc;
+        DeserializationError error = deserializeJson(doc, data);
+
+        // Test if parsing succeeds.
+        if (error) {
+            Serial.print(F("deserializeJson() failed: "));
+            Serial.println(error.c_str());
+            return;
+        } 
+
+        textReceivedHandler(doc);
+    };
     
-    void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len) {
+    void WifiServ::onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len) {
         if(type == WS_EVT_CONNECT){
-        
+            
+            if(connectedHandler) connectedHandler();
             Serial.println("Websocket client connection received");
-            client->text("Hello from ESP32 Server");
         
         } else if(type == WS_EVT_DISCONNECT){
+            if(disconnectedHandler) disconnectedHandler();
+
             Serial.println("Client disconnected");
         } 
+
+        //data packet
+        if(type != WS_EVT_DATA) return;
+
+        AwsFrameInfo * info = (AwsFrameInfo*)arg;
+        if(info->final && info->index == 0 && info->len == len){
+            //the whole message is in a single frame and we got all of it's data
+            //os_printf("ws[%s][%u] %s-message[%llu]: ", server->url(), client->id(), (info->opcode == WS_TEXT)?"text":"binary", info->len);
+            if(info->opcode == WS_TEXT){
+                data[len] = 0;
+                auto dataChar = (char*)data;
+                serilize(dataChar);
+            }
+        }      
     };
 
     void WifiServ::setup(){
@@ -186,7 +226,9 @@
             request->send(SPIFFS, "/index.html", "text/html");
             });  
 
-        ws.onEvent(onEvent);
+        ws.onEvent([&](AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len) {
+            onEvent(server,client,type,arg,data,len);
+        });
         server.addHandler(&ws);
 
         server.begin();        

@@ -5,6 +5,7 @@
 #include <BuscaCoorrdenadas.h>
 #include <WifiServ.h>
 
+
 WifiServ wifiServ;
 
 #ifdef ARDUINO_ARCH_ESP32
@@ -115,22 +116,6 @@ void btnSwitch(){
    }
 }
 
-class SPIFFSWriterHandler : public AsyncWebHandler {
-public:
-  SPIFFSWriterHandler() {}
-  virtual ~SPIFFSWriterHandler() {}
-
-  bool canHandle(AsyncWebServerRequest *request){
-    if(request->method() != HTTP_POST) return false; // solo captura los POST
-    return true;
-  }
-
-  void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
-     mode = autoPos;
-     request->send(200, "application/json", "{}");
-  }
-};
-
 void setup() {
    Serial.begin(230400);
    // Marcar los pines como salida
@@ -173,32 +158,20 @@ void setup() {
    mode = calibrationMode;
 
    wifiServ.setup();
-   wifiServ.server.addHandler(new SPIFFSWriterHandler()).setFilter(ON_AP_FILTER);//only when requested from AP
-   wifiServ.ws.onEvent([](AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len) {
-      //data packet
-      if(type != WS_EVT_DATA) return;
+   wifiServ.connectedHandler = [&](){
+      StaticJsonDocument<200> doc;
+      doc["msg"] = "Hello from ESP32 Server";
+      wifiServ.sendJson(doc);
+   };
 
-      AwsFrameInfo * info = (AwsFrameInfo*)arg;
-      if(info->final && info->index == 0 && info->len == len){
-         //the whole message is in a single frame and we got all of it's data
-         //os_printf("ws[%s][%u] %s-message[%llu]: ", server->url(), client->id(), (info->opcode == WS_TEXT)?"text":"binary", info->len);
-         if(info->opcode == WS_TEXT){
-            data[len] = 0;
-            Serial.println((char*)data);
-         } else {
-            for(size_t i=0; i < info->len; i++){
-               Serial.print(data[i]);
-            }
-            Serial.println("");
-         }
-         if(info->opcode == WS_TEXT)
-         client->text("I got your text message");
-         else
-         client->binary("I got your binary message");
-      } else {
-         Serial.println("Otro caso");
+   wifiServ.textReceivedHandler = [&](StaticJsonDocument<200> doc){
+      const char* xPos = doc["xPos"];
+      //const char* yPos = doc["yPos"];
+      if(xPos == "10"){
+         mode = autoPos;
       }
-   });
+      Serial.println(xPos);
+   };
    Serial.println("End setup.");
 }
 
@@ -249,6 +222,11 @@ void analogManualMove(){
          lcd.print(stepper.currentPosition());
          lcd.print(" - ");
          lcd.print(stepper2.currentPosition());
+
+         StaticJsonDocument<200> doc;
+         doc["XPos"] = stepper.currentPosition();
+         doc["YPos"] = stepper2.currentPosition();
+         wifiServ.sendJson(doc);
       }
       moving = false;
    } else {
