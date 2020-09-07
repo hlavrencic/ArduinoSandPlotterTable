@@ -11,17 +11,16 @@
             bool andar();
             bool calibrar();
             void setSpeed(float speed);
+            float getMaxSpeed();
             void moveTo(long pos, float speed);
             long getPos();
         private:
+            int8_t getSentido();
             AccelStepper *_stepper;
             unsigned int _maxPos;
-            int8_t _sentido;
             EstadoCalibracion _estadoCalibracion = EstadoCalibracion::sinCalibrar;
-            unsigned int cont = 0;
             bool _logOn;
             uint8_t _endPin;
-            long _lastMove;
     };
 
     Carrito::Carrito(
@@ -38,32 +37,30 @@
         _stepper->setAcceleration(1000);
     }
 
+    float Carrito::getMaxSpeed(){
+        return _stepper->maxSpeed();
+    }
+
     void Carrito::setSpeed(float speed){
         
+        if(_logOn){
+            Serial.print("setSpeed(");
+            Serial.print(speed);
+            Serial.println(")");
+        }
+                
+        _stepper->setSpeed(speed);
 
+        return;             
+    }
+
+    int8_t Carrito::getSentido(){
+        auto speed = _stepper->speed();
         int8_t sentidoActual;
         if(speed < 0) sentidoActual = -1;
         else if (speed > 0) sentidoActual = 1;
         else sentidoActual = 0;
-        
-        if(_stepper->speed() == 0){
-            if(speed == 0){
-                _stepper->disableOutputs();
-            } else {
-                _stepper->enableOutputs();
-            }
-        }
-        
-        _stepper->setSpeed(speed);
-
-        if(_sentido == sentidoActual){
-            return;
-        }
-
-        _sentido = sentidoActual;
-
-        return;    
-                
+        return sentidoActual;
     }
 
     bool Carrito::calibrar(){
@@ -122,19 +119,25 @@
 
     bool Carrito::andar(){
 
-        if(_estadoCalibracion == EstadoCalibracion::errorCalibracion) return false;
+        if(_estadoCalibracion == EstadoCalibracion::errorCalibracion) {
+            if(_logOn) Serial.println("Need recalibration.");
+            return false;
+        }
 
         if(_estadoCalibracion == EstadoCalibracion::calibrado){
             auto choqueConSensor = !digitalRead(_endPin);
             if(choqueConSensor){
-                if(_logOn) Serial.println("CHOQUE SENSOR");
+                if(_logOn) Serial.println("CHOQUE SENSOR.");
                 _estadoCalibracion = EstadoCalibracion::errorCalibracion;
                 setSpeed(0);
                 return false;
             }
         }
 
-        if(_stepper->speed() == 0) return true;
+        if(_stepper->speed() == 0) {
+            if(_logOn) Serial.println("Speed NULL.");
+            return true;
+        }
 
         auto pos = _stepper->currentPosition();
 
@@ -144,22 +147,22 @@
         } else if(pos >= _maxPos){
             estoyEnElLimite = 1;
         } else if (pos == _stepper->targetPosition()){
+            if(_logOn) Serial.println("Reach target.");
             setSpeed(0);
             return true;
         }
 
-        if(estoyEnElLimite * _sentido == 1 ){ // Sin choque
+        if(estoyEnElLimite * getSentido() == 1 ){ // Sin choque
             setSpeed(0);
             return true;
         } 
 
-        _lastMove = millis();
         _stepper->runSpeed();
-
         return false;
     }
 
     void Carrito::moveTo(long pos, float speed){
+        if(_logOn) Serial.println("moveTo...");
         _stepper->moveTo(pos);
 
         if(_stepper->currentPosition() > pos) speed = -speed;  // Invierto el sentido

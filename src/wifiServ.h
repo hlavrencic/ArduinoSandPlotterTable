@@ -1,6 +1,7 @@
 #ifndef H_WIFISERV
     #define H_WIFISERV
 
+    #include <Arduino.h>
     #include <DNSServer.h>
     #include <WiFi.h>
     #include <AsyncTCP.h>
@@ -8,27 +9,84 @@
     #include <SPIFFS.h>
     #include <ArduinoJson.h>
 
+    typedef std::function<void(StaticJsonDocument<200> doc)> TextReceivedHandler;
+    typedef std::function<void()> SocketStatusHandler;
+
+    enum WifiServEstadoConexion {NINGUNO = 0, CONFIGURADO = 1, CONECTADO = 2, CONECTADO_AP = 3};
+
+    class WifiServ
+    {
+    public:
+        void connect(const char* ssid, const char* pass = (const char*)__null);
+        void connectAP(const char* ssid);
+        void loop();
+        void sendJson(StaticJsonDocument<200> doc);
+        IPAddress GetIP();
+        AsyncWebServer server = AsyncWebServer(80);
+        AsyncWebSocket ws = AsyncWebSocket("/ws");
+        TextReceivedHandler textReceivedHandler;
+        SocketStatusHandler connectedHandler;
+        SocketStatusHandler disconnectedHandler;
+    private:
+        void _connect(const char* ssid, const char* pass = (const char*)__null);
+        void _setup();
+        void _cleanWifi();
+        void serilize(char* data);
+        void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len);
+        DNSServer _dNSServer;
+        WifiServEstadoConexion _estadoConexion = WifiServEstadoConexion::NINGUNO;
+        String _ssid;
+        String _pass;
+        IPAddress _ip;
+        unsigned short _cont;
+    };
+
     class RedirectInvalidHostHandler : public AsyncWebHandler {
     public:
-        RedirectInvalidHostHandler() {}
+        RedirectInvalidHostHandler(WifiServ* wifiServ) {
+            _wifiServ = wifiServ;
+        }
         virtual ~RedirectInvalidHostHandler() {}
 
         bool canHandle(AsyncWebServerRequest *request){   
             auto header = request->getHeader("Host");
             if(!header){
-            return true;
+                return true;
             }
 
-            return header->value().compareTo("connectivitycheck.gstatic.com")!=0;
+            auto hostValue = header->value();
+            auto ip = _wifiServ->GetIP().toString();
+            auto hostValido = hostValue.compareTo("connectivitycheck.gstatic.com")==0 || hostValue.compareTo(ip)==0;
+            return !hostValido;
         }
 
         void handleRequest(AsyncWebServerRequest *request) {
-        if(request->method() == HTTP_GET) {
-        request->redirect("http://connectivitycheck.gstatic.com/generate_204");
-        } else {
-        request->send(404);
-        }    
-    }
+            if(request->method() == HTTP_GET) {
+                request->redirect("http://connectivitycheck.gstatic.com/generate_204");
+            } else {
+                request->send(404);
+            }    
+        }
+    private:
+        WifiServ* _wifiServ;
+    };
+
+    class SPIFFSRedirectIndexHandler : public AsyncWebHandler {
+    public:
+        SPIFFSRedirectIndexHandler() {}
+        virtual ~SPIFFSRedirectIndexHandler() {}
+
+        bool canHandle(AsyncWebServerRequest *request){
+            if(request->method() != HTTP_GET) return false; // solo captura los HttpGet
+            
+            auto url = request->url();
+            auto esIndex = url.compareTo("/") == 0;
+            return esIndex;
+        }
+
+        void handleRequest(AsyncWebServerRequest *request) {
+            request->redirect("/index.html");
+        }
     };
 
     class SPIFFSReadHandler : public AsyncWebHandler {
@@ -38,13 +96,6 @@
 
         bool canHandle(AsyncWebServerRequest *request){
             if(request->method() != HTTP_GET) return false; // solo captura los HttpGet
-
-            //Verifica el origen de la llamada:
-            auto header = request->getHeader("Host");
-            if(!header)return false;
-
-            auto origenCorrecto = header->value().compareTo("connectivitycheck.gstatic.com")==0;
-            if(!origenCorrecto) return false;
 
             // Verifica que el archivo exista
             auto url = request->url().c_str();
@@ -131,34 +182,9 @@
             file = root.openNextFile();
         }
     };
-
-    typedef std::function<void(StaticJsonDocument<200> doc)> TextReceivedHandler;
-    typedef std::function<void()> SocketStatusHandler;
-
-    class WifiServ
-    {
-    public:
-        WifiServ();
-        void setup();
-        void loop();
-        void sendJson(StaticJsonDocument<200> doc);
-        AsyncWebServer server = AsyncWebServer(80);
-        AsyncWebSocket ws = AsyncWebSocket("/ws");
-        TextReceivedHandler textReceivedHandler;
-        SocketStatusHandler connectedHandler;
-        SocketStatusHandler disconnectedHandler;
-    private:
-        void serilize(char* data);
-        void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len);
-        DNSServer _dNSServer;
-    };
-
-    WifiServ::WifiServ()
-    {
-    };
     
     void WifiServ::sendJson(StaticJsonDocument<200> doc){
-        char* txt;
+        char txt[200];
         serializeJson(doc, txt);
         ws.textAll(txt);
     };
@@ -175,7 +201,7 @@
             Serial.println(error.c_str());
             return;
         } 
-
+        
         textReceivedHandler(doc);
     };
     
@@ -201,40 +227,141 @@
             if(info->opcode == WS_TEXT){
                 data[len] = 0;
                 auto dataChar = (char*)data;
+
                 serilize(dataChar);
             }
         }      
     };
 
-    void WifiServ::setup(){
+    void WifiServ::connect(const char* ssid, const char* pass){
+        _ssid = String(ssid);
+        _pass = String(pass);
+    }
+
+    IPAddress WifiServ::GetIP(){
+        return _ip;
+    }
+
+    void WifiServ::_connect(const char* ssid, const char* pass){
+        
+        _cleanWifi();
+
+        WiFi.begin(ssid, pass);
+        WiFi.setAutoReconnect(true);
+        
+        _estadoConexion = WifiServEstadoConexion::CONECTADO;
+
+        auto status = WiFi.status();
+        _cont = 0;
+        while (status != WL_CONNECTED) {
+            Serial.print("Connecting to WiFi... ");
+            Serial.print(ssid);
+            Serial.print("  STATUS: ");
+            Serial.println(status);
+            delay(500);
+            status = WiFi.status();
+
+            _cont++;
+            if(_cont >= 20){
+                Serial.println("CONNECTION FAILED.");
+                connectAP("MesitaArena");
+                return;
+            }
+        }
+
+        _ip = WiFi.localIP();
+        Serial.print("IP: ");
+        Serial.println(_ip);
+        
+        server.begin();
+    }
+
+    void WifiServ::connectAP(const char* ssid){
+        _cleanWifi();
+
+        WiFi.softAP(ssid);
+        
+
+        _ip = WiFi.softAPIP();
+        Serial.print("IP: ");
+        Serial.println(_ip);
+        if(!_dNSServer.start(53, "*", _ip)){
+            Serial.println("Fallo DNS");
+            return;
+        }
+
+        _setup();
+
+        server.begin();
+
+        _estadoConexion = WifiServEstadoConexion::CONECTADO_AP;
+    }
+
+    void WifiServ::_cleanWifi(){
+        if(!(_estadoConexion == WifiServEstadoConexion::CONECTADO || _estadoConexion == WifiServEstadoConexion::CONECTADO_AP))
+            return;
+        
+        auto estadoOriginal = _estadoConexion;
+        _estadoConexion = WifiServEstadoConexion::CONFIGURADO;
+        
+        ws.closeAll();
+        Serial.println("Server stop...");
+        //server.reset();
+        server.end();
+        Serial.println("STOPPIN DNS...");
+        _dNSServer.stop();
+
+        if(estadoOriginal == WifiServEstadoConexion::CONECTADO_AP){
+            Serial.println("disconecting AP...");
+            WiFi.softAPdisconnect(true);
+            
+            delay(1000);
+        } else if (estadoOriginal == WifiServEstadoConexion::CONECTADO){
+            Serial.println("Disconecting WiFi...");
+            WiFi.disconnect(true);
+            delay(1000);
+        }
+
+    }
+
+    void WifiServ::_setup(){
+        if(_estadoConexion != WifiServEstadoConexion::NINGUNO){
+            return;
+        }
+
         if(!SPIFFS.begin()){
             Serial.println("SPIFFS Mount Failed");
             return;
         }
 
         listDir("/");
-
-        WiFi.softAP("MesitaDeArena");
-        _dNSServer.start(53, "*", WiFi.softAPIP());
-
-        server.addHandler(new RedirectInvalidHostHandler()).setFilter(ON_AP_FILTER);//only when requested from AP
-        server.addHandler(new SPIFFSReadHandler()).setFilter(ON_AP_FILTER);//only when requested from AP
+        
+        server.addHandler(new RedirectInvalidHostHandler(this));
+        server.addHandler(new SPIFFSReadHandler());
+        server.addHandler(new SPIFFSRedirectIndexHandler());
         server.on(
             "/generate_204",
             HTTP_GET,
             [](AsyncWebServerRequest * request){
-            request->send(SPIFFS, "/index.html", "text/html");
+            request->send(SPIFFS, "/indexAP.html", "text/html");
             });  
-
+        
         ws.onEvent([&](AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len) {
             onEvent(server,client,type,arg,data,len);
         });
-        server.addHandler(&ws);
 
-        server.begin();        
+        server.addHandler(&ws);
+                
+        _estadoConexion = WifiServEstadoConexion::CONFIGURADO;
     };
 
     void WifiServ::loop(){
+        if(_ssid.length() > 0){
+            _connect(_ssid.c_str(), _pass.c_str());
+            _ssid.clear();
+        }
+
+        if(_estadoConexion != WifiServEstadoConexion::CONECTADO_AP) return;
         _dNSServer.processNextRequest();
     };
 

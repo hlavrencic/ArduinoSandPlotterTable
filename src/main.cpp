@@ -45,12 +45,13 @@ WifiServ wifiServ;
    const byte end2Pin = 11;
 #endif
 
+unsigned long contadorInactividad = 0;
 
 AccelStepper stepper = AccelStepper(8, motor1Pin3, motor1Pin1 , motor1Pin2, motor1Pin4);
 Carrito carrito1 = Carrito(&stepper, 4000U, false, end1Pin);
 
 AccelStepper stepper2 = AccelStepper(8, motor2Pin4, motor2Pin2, motor2Pin1, motor2Pin3);
-Carrito carrito2 = Carrito(&stepper2, 35000U, true, end2Pin);
+Carrito carrito2 = Carrito(&stepper2, 35000U, false, end2Pin);
 
 BuscaCoorrdenadas buscaCoorrdenadas = BuscaCoorrdenadas(&carrito1, &carrito2);
 
@@ -65,7 +66,7 @@ uint8_t retarrow[8] = {	0x1,0x1,0x5,0x9,0x1f,0x8,0x4};
 
 char wsMsg[1000];
 
-enum Mode { manual, autoPos, calibrationMode };
+enum Mode { manual, autoPos, calibrationMode, irA };
 Mode mode = manual;
 
 enum MenuOption {noMenu, menu, opcion1};
@@ -116,6 +117,19 @@ void btnSwitch(){
    }
 }
 
+void sendSocketMsg(const char* msg){
+   StaticJsonDocument<200> doc;
+   doc["msg"] = msg;
+   wifiServ.sendJson(doc);
+}
+
+void sendPos(){
+   StaticJsonDocument<200> doc;
+   doc["xPos"] = stepper.currentPosition();
+   doc["yPos"] = stepper2.currentPosition();
+   wifiServ.sendJson(doc);
+}
+
 void setup() {
    Serial.begin(230400);
    // Marcar los pines como salida
@@ -157,20 +171,49 @@ void setup() {
    lcd.print("Calibrando...");
    mode = calibrationMode;
 
-   wifiServ.setup();
+   wifiServ.connectAP("MesitaArena");
    wifiServ.connectedHandler = [&](){
-      StaticJsonDocument<200> doc;
-      doc["msg"] = "Hello from ESP32 Server";
-      wifiServ.sendJson(doc);
+      sendSocketMsg("Hello from ESP32 Server");
    };
 
    wifiServ.textReceivedHandler = [&](StaticJsonDocument<200> doc){
-      const char* xPos = doc["xPos"];
-      //const char* yPos = doc["yPos"];
-      if(xPos == "10"){
-         mode = autoPos;
+      if(mode == Mode::calibrationMode) return;
+      
+      if(doc.containsKey("ssid")){
+         Serial.print("Nueva red: ");
+         const char* ssid = doc["ssid"];
+         const char* pass = doc["pass"];
+         Serial.print(ssid);
+         Serial.println(pass);
+
+         wifiServ.connect(ssid, pass);
+         return;
       }
-      Serial.println(xPos);
+
+      const char* xPos = doc["xPos"];
+
+      if(strcmp(xPos, "AUTO") == 0){
+         mode = Mode::autoPos;
+         sendSocketMsg("Modo AUTO");
+         return;
+      } else if(strcmp(xPos, "MANUAL") == 0){
+         mode = Mode::manual;
+         sendSocketMsg("Modo MANUAL");
+         return;
+      } else if(strcmp(xPos, "CALIB") == 0){
+         mode = Mode::calibrationMode;
+         sendSocketMsg("Calibrando");
+         return;
+      }
+
+      const char* yPos = doc["yPos"];
+      char * xPosPointer;
+      char * yPosPointer;
+      auto pos1 = strtol(xPos, &xPosPointer, 10);
+      auto pos2 = strtol(yPos, &yPosPointer, 10);
+      buscaCoorrdenadas.irHasta(pos1, pos2);
+      mode = Mode::irA;
+      sendSocketMsg("moviendo A...");
    };
    Serial.println("End setup.");
 }
@@ -189,6 +232,8 @@ bool forward = true;
 void autoPosMove(){
    const long INTERVALO = 100;
    if(buscaCoorrdenadas.andar()){
+      sendPos();
+
       auto pos2 = carrito2.getPos();
       if(pos2 >= 35000) forward = false; else if(pos2 <= 5000) forward = true;
       if(forward) pos2 += INTERVALO; else pos2 -= INTERVALO;
@@ -200,21 +245,26 @@ void autoPosMove(){
    }
 }
 
-void analogManualMove(){
+void moverA(){
+   if(buscaCoorrdenadas.andar()){
+      mode = Mode::manual;
+      //char ff[60];
+      //sprintf(ff, "Llegue a %ld, %ld", buscaCoorrdenadas.irHasta1(), buscaCoorrdenadas.irHasta2());
+      //sendSocketMsg(ff);
+      sendPos();
+   }
+}
+
+
+
+bool analogManualMove(){
    auto a2 = analogRead(analog1Pin);
    auto a3 = analogRead(analog2Pin);
 
    auto logA2 = logSpeed(a2);
    auto logA3 = logSpeed(a3);
 
-   //print(logA2);
-
-   carrito1.setSpeed(logA2/6);
-   carrito2.setSpeed(logA3);
-   carrito1.andar();
-   carrito2.andar();
-
-   if(logA3 == 0 && logA2 == 0){
+   if(logA3 <= 1 && logA2 <= 1){
       if(moving){
          lcd.clear();
          lcd.print("Detenido en ");
@@ -223,21 +273,26 @@ void analogManualMove(){
          lcd.print(" - ");
          lcd.print(stepper2.currentPosition());
 
-         StaticJsonDocument<200> doc;
-         doc["XPos"] = stepper.currentPosition();
-         doc["YPos"] = stepper2.currentPosition();
-         wifiServ.sendJson(doc);
+         sendPos();
       }
       moving = false;
-   } else {
-      menuOption = noMenu;
-      if(!moving){
-         lcd.clear();
-         lcd.print("Moviendo el bote");
-      }
 
-      moving = true;
+      return false;
    }
+
+   carrito1.setSpeed(logA2/6);
+   carrito2.setSpeed(logA3);
+   carrito1.andar();
+   carrito2.andar();
+   menuOption = noMenu;
+   
+   if(!moving){
+      lcd.clear();
+      lcd.print("Moviendo el bote");
+   }
+   moving = true;
+
+   return true;
 }
 
 void calibrate(){
@@ -253,10 +308,22 @@ void calibrate(){
       return;
    }
 
+   sendSocketMsg("Calibrado.");
    Serial.println("Calibrado.");
    mode = Mode::manual;
    lcd.clear();
    lcd.print("Modo Manual.");
+}
+
+void enableMotors(bool state){
+   if(state){
+      contadorInactividad = millis();
+      stepper.enableOutputs();
+      stepper2.enableOutputs();
+   } else {
+      stepper.disableOutputs();
+      stepper2.disableOutputs();      
+   }
 }
 
 void loop() {
@@ -274,22 +341,31 @@ void loop() {
       btnOn=false;
    }
 
+   if(mode != Mode::manual){
+      enableMotors(true);
+   }
+
    switch (mode)
    {
-      case manual:
-         analogManualMove();
-         
+      case Mode::manual:
+         if(analogManualMove()) enableMotors(true);
          break;
       
-      case autoPos:
+      case Mode::autoPos:
          autoPosMove();
          break;
 
-      case calibrationMode:
+      case Mode::calibrationMode:
          calibrate();
          break;
-
+      case Mode::irA:
+         moverA();
+         break;
       default:
          break;
+   }
+
+   if(millis() - contadorInactividad >= 100){
+      enableMotors(false);
    }
 }
