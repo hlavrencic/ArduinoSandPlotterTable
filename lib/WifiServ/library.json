@@ -1,0 +1,16 @@
+{
+  "name": "WifiServ",
+  "keywords": "Wifi, server",
+  "description": "Wifi Server bidireccional host",
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/..."
+  },
+  "frameworks": "arduino",
+  "platforms":
+  [
+    "atmelavr",
+    "espressif8266"
+  ]
+}
