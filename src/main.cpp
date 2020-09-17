@@ -5,7 +5,6 @@
 #include <BuscaCoorrdenadas.h>
 #include <WifiServ.h>
 
-
 WifiServ wifiServ;
 
 #ifdef ARDUINO_ARCH_ESP32
