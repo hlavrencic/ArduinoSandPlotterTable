@@ -117,13 +117,13 @@ void btnSwitch(){
 }
 
 void sendSocketMsg(const char* msg){
-   StaticJsonDocument<200> doc;
+   auto doc = wifiServ.initJson();
    doc["msg"] = msg;
    wifiServ.sendJson(doc);
 }
 
 void sendPos(){
-   StaticJsonDocument<200> doc;
+   auto doc = wifiServ.initJson();
    doc["xPos"] = stepper.currentPosition();
    doc["yPos"] = stepper2.currentPosition();
    wifiServ.sendJson(doc);
