@@ -16,7 +16,7 @@ A small metalic ball is moved through a sand box and make drawings. This is done
 <table>
   <tr>
     <td>
-      <a href="https://raw.githubusercontent.com/hlavrencic/imageHost/master/arduinoSandPlotterTable/IMG_20200825_003217169.jpg"><img src="https://raw.githubusercontent.com/hlavrencic/imageHost/master/arduinoSandPlotterTable/IMG_20200825_003217169.jpg" width="200" ></a>
+      <a href="https://raw.githubusercontent.com/hlavrencic/imageHost/master/arduinoSandPlotterTable/IMG_20200825_003217169.jpg"><img src="https://raw.githubusercontent.com/hlavrencic/imageHost/master/arduinoSandPlotterTable/IMG_20200825_003217169.jpg" width="150" ></a>
     </td>
     <td>
       Draw your own custom images
