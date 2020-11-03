@@ -1,0 +1,3 @@
+[submodule "lib/ArduinoWifiServ"]
+	path = lib/ArduinoWifiServ
+	url = https://github.com/hlavrencic/ArduinoWifiServ/
