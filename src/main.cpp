@@ -3,9 +3,16 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <BuscaCoorrdenadas.h>
-#include <WifiServ.h>
 
-WifiServ wifiServ;
+#include "LittleFS.h"
+
+#include "WiFiManager.h"
+#include "webServer.h"
+#include "updater.h"
+#include "configManager.h"
+#include "dashboard.h"
+#include "timeSync.h"
+
 
 #ifdef ARDUINO_ARCH_ESP32
 //include ESP32 specific libs
@@ -150,6 +157,13 @@ void setup() {
 
    pinMode(end1Pin, INPUT_PULLUP);
    pinMode(end2Pin, INPUT_PULLUP);
+
+   LittleFS.begin();
+   GUI.begin();
+   configManager.begin();
+   WiFiManager.begin(configManager.data.projectName);
+   timeSync.begin();
+   dash.begin(500);
 
    stepper.setMaxSpeed(300);
    stepper2.setMaxSpeed(1000);
@@ -326,7 +340,11 @@ void enableMotors(bool state){
 }
 
 void loop() {
-   wifiServ.loop();
+   //software interrupts
+   WiFiManager.loop();
+   updater.loop();
+   dash.loop();
+   
    auto d2 = digitalRead(analogSwitchPin);
 
    if(!d2){
