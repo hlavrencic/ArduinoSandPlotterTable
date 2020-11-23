@@ -3,9 +3,10 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <BuscaCoorrdenadas.h>
-#include <WifiServ.h>
+#include <SPIFFS.h>
+#include <ArduinoWifiServ.h>
 
-WifiServ wifiServ;
+ArduinoWifiServ wifiServ;
 
 #ifdef ARDUINO_ARCH_ESP32
 //include ESP32 specific libs
@@ -117,16 +118,16 @@ void btnSwitch(){
 }
 
 void sendSocketMsg(const char* msg){
-   auto doc = wifiServ.initJson();
-   doc["msg"] = msg;
-   wifiServ.sendJson(doc);
+   webSocketServerJson.send([&](DynamicJsonDocument &doc){
+      doc["msg"] = msg;
+   });
 }
 
 void sendPos(){
-   auto doc = wifiServ.initJson();
-   doc["xPos"] = stepper.currentPosition();
-   doc["yPos"] = stepper2.currentPosition();
-   wifiServ.sendJson(doc);
+   webSocketServerJson.send([&](DynamicJsonDocument &doc){
+      doc["xPos"] = stepper.currentPosition();
+      doc["yPos"] = stepper2.currentPosition();
+   });
 }
 
 void setup() {
@@ -170,12 +171,15 @@ void setup() {
    lcd.print("Calibrando...");
    mode = calibrationMode;
 
-   wifiServ.connectAP("MesitaArena");
-   wifiServ.connectedHandler = [&](){
-      sendSocketMsg("Hello from ESP32 Server");
-   };
 
-   wifiServ.textReceivedHandler = [&](StaticJsonDocument<200> doc){
+   if(!SPIFFS.begin()){
+      Serial.println("SPIFFS Mount Failed");
+      return;
+   }
+
+   wifiServ.init("MesitaArena", SPIFFS);
+ 
+   webSocketServerJson.addHandler([&](DynamicJsonDocument &doc){
       if(mode == Mode::calibrationMode) return;
       
       if(doc.containsKey("ssid")){
@@ -185,7 +189,7 @@ void setup() {
          Serial.print(ssid);
          Serial.println(pass);
 
-         wifiServ.connect(ssid, pass);
+         wifiConnection.connect(ssid, pass);
          return;
       }
 
@@ -213,7 +217,7 @@ void setup() {
       buscaCoorrdenadas.irHasta(pos1, pos2);
       mode = Mode::irA;
       sendSocketMsg("moviendo A...");
-   };
+   });
    Serial.println("End setup.");
 }
 
@@ -326,7 +330,7 @@ void enableMotors(bool state){
 }
 
 void loop() {
-   wifiServ.loop();
+   wifiServ.next();
    auto d2 = digitalRead(analogSwitchPin);
 
    if(!d2){
