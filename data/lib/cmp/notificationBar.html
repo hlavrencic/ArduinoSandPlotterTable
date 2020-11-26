@@ -1,0 +1,57 @@
+<!-- BARRA ESTADO -->
+<div class="row " style="background:black">
+	<div class="col-sm"></div>
+	<div class="col-sm-2" style="background:#AAA; text-align:center;">
+		<a href="#"
+			data-bind="click: () => {showWifi(!showWifi()); showConsole(false);}">
+			<span class="tooltip bottom" aria-label="WiFi Connection">
+				<span class="icon-rss inverse"></span>
+				<span data-bind="text: wifiStatusLogo"></span>
+			</span>
+		</a>
+	</div>
+	<div class="col-sm-2" style="background:#888; text-align:center">
+		<a href="#" data-bind="click: () => { showConsole(!showConsole()); showWifi(false); }"><span class="tooltip bottom" aria-label="ESP Connection">&#128260;
+        <span data-bind="if: connectionStatus() == 'OPENED'">&#9989;</span>
+			<span data-bind="if: connectionStatus() == 'CLOSED'">&#9940;</span>
+			<span data-bind="if: connectionStatus() == 'ERROR'">&#10060;</span>
+			<span data-bind="if: connectionStatus() == null">&#10067;</span>
+			<span data-bind="if: socketResponsesAlert">&#10069;</span>
+			</span>
+		</a>
+	</div>
+	<div class="col-sm"></div>
+</div>
+
+<!-- CONSOLA -->
+<div data-bind="if: showConsole" class="container" style="background:#888">
+	<div class="row"><small>&nbsp;</small></div>
+	<small>
+    <!-- ko foreach: console -->
+    
+		<div class="row">
+			<div ><span data-bind="text: $parent.consoleTypeSymbol($data.type)" style="color:white;"></span> <small><span data-bind="date: $data.time"></span></small>
+</div>
+<div><small><pre data-bind="text: $data.data"></pre></small></div>
+</div>
+
+<!-- /ko -->
+</small>
+</div>
+
+<div data-bind="if: showWifi" class="container" style="background:#AAA">
+
+	<!-- ko with: wifi -->
+	<div class="row">
+		<button data-bind="click: () => { autoSync(!autoSync())} "><span data-bind="text: $parent.autoSyncText()"></span></button>
+		<h5>WiFi Status: <span data-bind="text: wifiStatusTxt"></span></h5>
+	</div>
+	<h6 data-bind="if: ssid"><span data-bind="text: ssid"></span><small>SSID</small></h6>
+	<h6 data-bind="if: ip"><span data-bind="text: ip"></span><small>IP</small></h6>
+	<h6 data-bind="if: mask"><span data-bind="text: mask"></span><small>MASK</small></h6>
+	<h6 data-bind="if: reason"><span data-bind="text: reason"></span><small>REASON</small></h6>
+	<h6 data-bind="if: gw"><span data-bind="text: gw"></span><small>GATEWAY</small></h6>
+	<h6 data-bind="if: channel"><span data-bind="text: channel"></span><small>CHANNEL</small></h6>
+	<h6 data-bind="if: aid"><span data-bind="text: aid"></span><small>AID</small></h6>
+	<!-- /ko -->
+</div>

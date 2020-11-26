@@ -1,0 +1,13 @@
+<fieldset>
+	<button data-bind="click: scan" class="circular shadowed" id="btnScan"><span 
+class="icon-search"></span></button>
+</fieldset>
+<div class="collapse" data-bind="if: networks">
+	<!-- ko foreach: networks -->
+	<!-- ko component: {
+      name: "network",
+      params: { ssid, callbackConnect: $parent.callbackConnect } 
+    } -->
+	<!-- /ko -->
+	<!-- /ko -->
+</div>

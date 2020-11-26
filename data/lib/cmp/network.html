@@ -1,0 +1,26 @@
+<input
+            type="radio"
+            data-bind="attr: {id: 'accordion-section' + ssid() }"
+            aria-hidden="true"
+            name="accordion"
+          />
+<label
+            for="accordion-section1"
+            aria-hidden="true"
+            data-bind="attr: {for: 'accordion-section' + ssid() }"
+            ><span class="icon-rss"></span><span data-bind="text: ssid"></span
+          ></label>
+<div>
+	<form>
+		<input type="hidden" name="SSID" data-bind="value: ssid" />
+		<div class="row">
+			<div class="col-sm-10">
+				<label><span class="icon-lock"></span>-></label>
+				<input data-bind="value: password" type="password" name="PASSWORD" />
+                </div>
+				<div class="col-sm-2">
+					<button data-bind="click: connect"><span class="icon-upload"></span></button>
+				</div>
+			</div>
+	</form>
+</div>
