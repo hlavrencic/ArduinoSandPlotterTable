@@ -1,4 +1,4 @@
-let SOCKET_URL = "ws://" + window.location.host + "/ws";
+let SOCKET_URL = "ws://" + window.location.host + ":81";
 
 try{
     let wifiServ = new WifiServ();
