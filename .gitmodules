@@ -1,3 +1,6 @@
 [submodule "lib/ArduinoWifiServ"]
 	path = lib/ArduinoWifiServ
 	url = https://github.com/hlavrencic/ArduinoWifiServ/
+[submodule "lib/MarcoPolo"]
+	path = lib/MarcoPolo
+	url = https://github.com/hlavrencic/MarcoPolo.git
